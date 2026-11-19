@@ -15,6 +15,8 @@ API_KEY = (os.environ.get("GEMINI_API_KEY") or "").strip()
 client = genai.Client(api_key=API_KEY) if API_KEY else None
 
 MODEL_NAME = (os.environ.get("GEMINI_MODEL") or "gemini-3.8-flash").strip()
+FALLBACK_MODEL_NAME = (os.environ.get("GEMINI_FALLBACK_MODEL") or "").strip()
+
 VALID_LABELS = ("paper", "glass", "plastic")
 
 PROMPT = """
@@ -47,42 +49,56 @@ def convert_raw_to_jpeg(raw_bytes: bytes) -> bytes | None:
     return None
 
 
+def _call_model_once(model_id: str, jpeg_bytes: bytes) -> str:
+    t0 = time.time()
+    print(f"Calling Gemini ({model_id})...", flush=True)
+    response = client.models.generate_content(
+        model=model_id,
+        contents=[
+            types.Part.from_bytes(data=jpeg_bytes, mime_type="image/jpeg"),
+            PROMPT,
+        ],
+        config=types.GenerateContentConfig(
+            temperature=0.0,
+            http_options=types.HttpOptions(timeout=25000),
+        ),
+    )
+    print(f"Gemini ({model_id}) responded in {time.time() - t0:.2f}s", flush=True)
+
+    text = getattr(response, "text", None)
+    raw = (text or "").strip().lower()
+    print(f"Gemini raw response: {raw!r}", flush=True)
+
+    for label in VALID_LABELS:
+        if raw == label or raw.startswith(label):
+            return label
+
+    for label in VALID_LABELS:
+        if label in raw:
+            return label
+
+    return "unknown"
+
+
 def classify_trash_jpeg(jpeg_bytes: bytes) -> str:
     if not client:
         print("Gemini error: GEMINI_API_KEY is missing or empty", flush=True)
         return "unknown"
 
     try:
-        t0 = time.time()
-        print(f"Calling Gemini ({MODEL_NAME})...", flush=True)
-        response = client.models.generate_content(
-            model=MODEL_NAME,
-            contents=[
-                types.Part.from_bytes(data=jpeg_bytes, mime_type="image/jpeg"),
-                PROMPT,
-            ],
-            config=types.GenerateContentConfig(
-                temperature=0.0,
-                http_options=types.HttpOptions(timeout=25000),
-            ),
-        )
-        print(f"Gemini responded in {time.time() - t0:.2f}s", flush=True)
-
-        text = getattr(response, "text", None)
-        raw = (text or "").strip().lower()
-        print(f"Gemini raw response: {raw!r}", flush=True)
-
-        for label in VALID_LABELS:
-            if raw == label or raw.startswith(label):
-                return label
-
-        for label in VALID_LABELS:
-            if label in raw:
-                return label
-
-        return "unknown"
+        return _call_model_once(MODEL_NAME, jpeg_bytes)
     except Exception as e:
-        print(f"Gemini error: {repr(e)}", flush=True)
+        err_str = repr(e)
+        print(f"Gemini error ({MODEL_NAME}): {err_str}", flush=True)
+        if FALLBACK_MODEL_NAME and FALLBACK_MODEL_NAME != MODEL_NAME and (
+            "504" in err_str or "503" in err_str or "DEADLINE_EXCEEDED" in err_str
+        ):
+            try:
+                return _call_model_once(FALLBACK_MODEL_NAME, jpeg_bytes)
+            except Exception as fb_err:
+                print(f"Gemini fallback error ({FALLBACK_MODEL_NAME}): {repr(fb_err)}", flush=True)
+                print(traceback.format_exc(), flush=True)
+                return "unknown"
         print(traceback.format_exc(), flush=True)
         return "unknown"
 
