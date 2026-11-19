@@ -25,6 +25,8 @@ latest_result = {
     "updated_at": "Chưa có ảnh"
 }
 
+capture_requested = False
+
 def classify_trash_jpeg(jpeg_bytes: bytes) -> str:
     try:
         response = client.models.generate_content(
@@ -47,6 +49,20 @@ def classify_trash_jpeg(jpeg_bytes: bytes) -> str:
 @app.route("/")
 def index():
     return render_template("index.html")
+
+@app.route("/api/trigger", methods=["POST"])
+def api_trigger():
+    global capture_requested
+    capture_requested = True
+    return jsonify({"status": "queued", "capture": True})
+
+@app.route("/api/should_capture", methods=["GET"])
+def api_should_capture():
+    global capture_requested
+    should_now = capture_requested
+    if capture_requested:
+        capture_requested = False
+    return jsonify({"capture": should_now})
 
 @app.route("/predict", methods=["POST"])
 def predict():
