@@ -3,7 +3,8 @@ import os
 import time
 import base64
 import traceback
-from datetime import datetime
+from datetime import datetime, timezone, timedelta
+VN_TZ = timezone(timedelta(hours=7))
 from flask import Flask, request, jsonify, render_template
 from PIL import Image
 from google import genai
@@ -159,7 +160,7 @@ def predict():
                 print("Warning: received non-JPEG data with unexpected length", flush=True)
 
         label = classify_trash_jpeg(img_bytes)
-        updated_at = datetime.now().strftime("%H:%M:%S")
+        updated_at = datetime.now(VN_TZ).strftime("%H:%M:%S")
 
         latest_result["label"] = label
         latest_result["image_b64"] = base64.b64encode(img_bytes).decode("utf-8")
