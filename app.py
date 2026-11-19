@@ -43,6 +43,7 @@ def is_valid_jpeg(data: bytes) -> bool:
 def convert_raw_to_jpeg(raw_bytes: bytes) -> bytes | None:
     if len(raw_bytes) == 240 * 176:
         img = Image.frombytes("L", (240, 176), raw_bytes)
+        img = img.rotate(180)  # <-- Thêm dòng này để xoay ảnh 180 độ
         buf = io.BytesIO()
         img.save(buf, format="JPEG", quality=70, optimize=True)
         return buf.getvalue()
