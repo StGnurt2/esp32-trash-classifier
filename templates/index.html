@@ -1,1 +1,57 @@
 
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Test Camera & AI Phân Loại Rác</title>
+  <style>
+    body { font-family: Arial, sans-serif; background: #0f172a; color: #f8fafc; text-align: center; padding: 24px; }
+    .box { max-width: 520px; margin: 0 auto; background: #1e293b; padding: 20px; border-radius: 14px; }
+    .badge { display: inline-block; padding: 10px 22px; border-radius: 999px; font-size: 24px; font-weight: bold; margin: 14px 0; background: #334155; }
+    .paper { background: #1d4ed8; color: #dbeafe; }
+    .glass { background: #047857; color: #d1fae5; }
+    .plastic { background: #b45309; color: #fef3c7; }
+    .unknown { background: #7f1d1d; color: #fecaca; }
+    img { max-width: 100%; border-radius: 10px; margin-top: 12px; border: 2px solid #475569; }
+    .meta { color: #94a3b8; font-size: 13px; margin-top: 8px; }
+  </style>
+</head>
+<body>
+  <div class="box">
+    <h2>📷 Test Camera & AI Nhận Diện Rác</h2>
+    <div>Loại rác nhận diện được:</div>
+    <div id="labelBadge" class="badge">CHƯA CÓ DỮ LIỆU</div>
+    <div id="timeText" class="meta">Cập nhật: --:--:--</div>
+    <img id="camPreview" src="" alt="Ảnh từ ESP32-CAM" style="display:none;">
+  </div>
+
+  <script>
+    const viMap = {
+      paper: "📄 PAPER (Giấy)",
+      glass: "🫙 GLASS (Thủy tinh)",
+      plastic: "🥤 PLASTIC (Nhựa)",
+      unknown: "❓ Không rõ / Chưa phân loại được"
+    };
+
+    setInterval(async () => {
+      try {
+        const res = await fetch("/api/latest");
+        const data = await res.json();
+        const badge = document.getElementById("labelBadge");
+        const img = document.getElementById("camPreview");
+
+        if (data.label && data.label !== "none") {
+          badge.className = "badge " + data.label;
+          badge.textContent = viMap[data.label] || data.label.toUpperCase();
+          document.getElementById("timeText").textContent = "Cập nhật lúc: " + data.updated_at;
+        }
+        if (data.image_b64) {
+          img.src = "data:image/jpeg;base64," + data.image_b64;
+          img.style.display = "block";
+        }
+      } catch (e) {}
+    }, 1000);
+  </script>
+</body>
+</html>
