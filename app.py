@@ -1,8 +1,10 @@
+import io
 import os
 import base64
 import traceback
 from datetime import datetime
 from flask import Flask, request, jsonify, render_template
+from PIL import Image
 from google import genai
 from google.genai import types
 
@@ -35,6 +37,15 @@ def is_valid_jpeg(data: bytes) -> bool:
     return bool(data) and len(data) > 4 and data[0:2] == b"\xff\xd8" and data[-2:] == b"\xff\xd9"
 
 
+def convert_raw_to_jpeg(raw_bytes: bytes) -> bytes | None:
+    if len(raw_bytes) == 240 * 176:
+        img = Image.frombytes("L", (240, 176), raw_bytes)
+        buf = io.BytesIO()
+        img.save(buf, format="JPEG", quality=85)
+        return buf.getvalue()
+    return None
+
+
 def classify_trash_jpeg(jpeg_bytes: bytes) -> str:
     if not client:
         print("Gemini error: GEMINI_API_KEY is missing or empty", flush=True)
@@ -42,13 +53,13 @@ def classify_trash_jpeg(jpeg_bytes: bytes) -> str:
 
     try:
         response = client.models.generate_content(
-    model="gemini-3.8-flash",
-    contents=[
-        types.Part.from_bytes(data=jpeg_bytes, mime_type="image/jpeg"),
-        PROMPT,
-    ],
-    config=types.GenerateContentConfig(temperature=0.0),
-)
+            model="gemini-3.8-flash",
+            contents=[
+                types.Part.from_bytes(data=jpeg_bytes, mime_type="image/jpeg"),
+                PROMPT,
+            ],
+            config=types.GenerateContentConfig(temperature=0.0),
+        )
 
         text = getattr(response, "text", None)
         raw = (text or "").strip().lower()
@@ -100,7 +111,12 @@ def predict():
             return jsonify({"error": "No image", "label": "unknown"}), 400
 
         if not is_valid_jpeg(img_bytes):
-            print("Warning: received bytes do not have full JPEG SOI/EOI markers", flush=True)
+            converted = convert_raw_to_jpeg(img_bytes)
+            if converted:
+                img_bytes = converted
+                print("Converted HQVGA grayscale frame to JPEG", flush=True)
+            else:
+                print("Warning: received non-JPEG data with unexpected length", flush=True)
 
         label = classify_trash_jpeg(img_bytes)
         updated_at = datetime.now().strftime("%H:%M:%S")
