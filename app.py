@@ -4,11 +4,12 @@ import time
 import base64
 import traceback
 from datetime import datetime, timezone, timedelta
-VN_TZ = timezone(timedelta(hours=7))
 from flask import Flask, request, jsonify, render_template
 from PIL import Image
 from google import genai
 from google.genai import types
+
+VN_TZ = timezone(timedelta(hours=7))
 
 app = Flask(__name__)
 
@@ -44,7 +45,7 @@ def is_valid_jpeg(data: bytes) -> bool:
 def convert_raw_to_jpeg(raw_bytes: bytes) -> bytes | None:
     if len(raw_bytes) == 240 * 176:
         img = Image.frombytes("L", (240, 176), raw_bytes)
-        img = img.rotate(180)  # <-- Thêm dòng này để xoay ảnh 180 độ
+        # Chỉ bật img = img.rotate(180) ở đây nếu CHƯA lật 180 độ trên ESP32-CAM (.ino)
         buf = io.BytesIO()
         img.save(buf, format="JPEG", quality=70, optimize=True)
         return buf.getvalue()
@@ -171,7 +172,7 @@ def predict():
     except Exception as e:
         print(f"Predict route error: {repr(e)}", flush=True)
         print(traceback.format_exc(), flush=True)
-        updated_at = datetime.now().strftime("%H:%M:%S")
+        updated_at = datetime.now(VN_TZ).strftime("%H:%M:%S")
         latest_result["label"] = "unknown"
         latest_result["updated_at"] = updated_at
         return jsonify({
