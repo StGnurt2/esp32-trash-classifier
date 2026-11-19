@@ -38,12 +38,13 @@ def classify_trash_jpeg(jpeg_bytes: bytes) -> str:
             config=types.GenerateContentConfig(temperature=0.0),
         )
         raw = (response.text or "").strip().lower()
+        print(f"Gemini raw response: {raw!r}", flush=True)
         for label in VALID_LABELS:
             if raw == label or raw.startswith(label):
                 return label
         return "unknown"
     except Exception as e:
-        print("Gemini error:", e)
+        print(f"Gemini error: {repr(e)}", flush=True)
         return "unknown"
 
 @app.route("/")
@@ -67,15 +68,9 @@ def api_should_capture():
 @app.route("/predict", methods=["POST"])
 def predict():
     img_bytes = request.get_data()
+    print(f"Received /predict bytes: {len(img_bytes)}", flush=True)
     if not img_bytes:
         return jsonify({"error": "No image", "label": "unknown"}), 400
-
-    label = classify_trash_jpeg(img_bytes)
-    latest_result["label"] = label
-    latest_result["image_b64"] = base64.b64encode(img_bytes).decode("utf-8")
-    latest_result["updated_at"] = datetime.now().strftime("%H:%M:%S")
-
-    return jsonify({"label": label, "updated_at": latest_result["updated_at"]})
 
 @app.route("/api/latest", methods=["GET"])
 def api_latest():
