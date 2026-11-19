@@ -1,5 +1,6 @@
 import io
 import os
+import time
 import base64
 import traceback
 from datetime import datetime
@@ -16,12 +17,14 @@ client = genai.Client(api_key=API_KEY) if API_KEY else None
 VALID_LABELS = ("paper", "glass", "plastic")
 
 PROMPT = """
-Nhìn ảnh rác này và phân loại chính xác vào ĐÚNG MỘT trong ba nhãn sau:
-- paper (giấy, bìa carton, giấy vở, khăn giấy)
-- glass (thủy tinh, chai lọ thủy tinh, mảnh kính)
-- plastic (nhựa, chai nhựa, hộp nhựa, túi nilon)
+Ảnh này là ảnh đen trắng độ phân giải thấp chụp từ camera giám sát rác.
+Hãy xác định vật thể rác chính nổi bật nhất trong khung hình và phân loại vào ĐÚNG MỘT trong ba nhãn sau:
+- paper (giấy, bìa carton, giấy vở, khăn giấy, vỏ hộp giấy)
+- glass (thủy tinh, chai lọ thủy tinh, hũ thủy tinh, mảnh kính)
+- plastic (nhựa, chai nhựa, hộp nhựa, can nhựa, túi nilon)
 
-Chỉ trả về DUY NHẤT một từ viết thường: paper, glass, hoặc plastic. Không giải thích.
+Nếu thấy vật thể rác chính (như chai nhựa, hộp/tờ giấy, chai/lọ thủy tinh), hãy chọn nhãn phù hợp nhất thay vì bỏ qua chỉ vì ảnh trắng đen hoặc hơi mờ.
+Chỉ trả về DUY NHẤT một từ viết thường: paper, glass, hoặc plastic (hoặc unknown nếu hoàn toàn không có vật thể nào). Không giải thích.
 """.strip()
 
 latest_result = {
@@ -84,6 +87,7 @@ def classify_trash_jpeg(jpeg_bytes: bytes) -> str:
         print(f"Gemini error: {repr(e)}", flush=True)
         print(traceback.format_exc(), flush=True)
         return "unknown"
+
 
 @app.route("/")
 def index():
