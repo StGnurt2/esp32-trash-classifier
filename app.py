@@ -49,9 +49,19 @@ def convert_raw_to_jpeg(raw_bytes: bytes) -> bytes | None:
     return None
 
 
-def _call_model_once(model_id: str, jpeg_bytes: bytes) -> str:
+def _build_http_options(timeout_ms: int) -> types.HttpOptions:
+    try:
+        return types.HttpOptions(
+            timeout=timeout_ms,
+            retry=types.HttpRetryOptions(attempts=1),
+        )
+    except Exception:
+        return types.HttpOptions(timeout=timeout_ms)
+
+
+def _call_model_once(model_id: str, jpeg_bytes: bytes, timeout_ms: int = 12000) -> str:
     t0 = time.time()
-    print(f"Calling Gemini ({model_id})...", flush=True)
+    print(f"Calling Gemini ({model_id}, timeout={timeout_ms}ms)...", flush=True)
     response = client.models.generate_content(
         model=model_id,
         contents=[
@@ -60,7 +70,7 @@ def _call_model_once(model_id: str, jpeg_bytes: bytes) -> str:
         ],
         config=types.GenerateContentConfig(
             temperature=0.0,
-            http_options=types.HttpOptions(timeout=25000),
+            http_options=_build_http_options(timeout_ms),
         ),
     )
     print(f"Gemini ({model_id}) responded in {time.time() - t0:.2f}s", flush=True)
@@ -86,15 +96,21 @@ def classify_trash_jpeg(jpeg_bytes: bytes) -> str:
         return "unknown"
 
     try:
-        return _call_model_once(MODEL_NAME, jpeg_bytes)
+        return _call_model_once(MODEL_NAME, jpeg_bytes, timeout_ms=12000)
     except Exception as e:
         err_str = repr(e)
         print(f"Gemini error ({MODEL_NAME}): {err_str}", flush=True)
-        if FALLBACK_MODEL_NAME and FALLBACK_MODEL_NAME != MODEL_NAME and (
-            "504" in err_str or "503" in err_str or "DEADLINE_EXCEEDED" in err_str
-        ):
+        is_timeout_or_busy = (
+            "504" in err_str
+            or "503" in err_str
+            or "DEADLINE_EXCEEDED" in err_str
+            or "timed out" in err_str.lower()
+            or "timeout" in err_str.lower()
+        )
+        if FALLBACK_MODEL_NAME and FALLBACK_MODEL_NAME != MODEL_NAME and is_timeout_or_busy:
             try:
-                return _call_model_once(FALLBACK_MODEL_NAME, jpeg_bytes)
+                print(f"Switching fast to fallback model: {FALLBACK_MODEL_NAME}", flush=True)
+                return _call_model_once(FALLBACK_MODEL_NAME, jpeg_bytes, timeout_ms=20000)
             except Exception as fb_err:
                 print(f"Gemini fallback error ({FALLBACK_MODEL_NAME}): {repr(fb_err)}", flush=True)
                 print(traceback.format_exc(), flush=True)
