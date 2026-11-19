@@ -14,7 +14,7 @@ app = Flask(__name__)
 API_KEY = (os.environ.get("GEMINI_API_KEY") or "").strip()
 client = genai.Client(api_key=API_KEY) if API_KEY else None
 
-MODEL_NAME = "gemini-3.8-flash"
+MODEL_NAME = (os.environ.get("GEMINI_MODEL") or "gemini-3.8-flash").strip()
 VALID_LABELS = ("paper", "glass", "plastic")
 
 PROMPT = """
@@ -52,47 +52,39 @@ def classify_trash_jpeg(jpeg_bytes: bytes) -> str:
         print("Gemini error: GEMINI_API_KEY is missing or empty", flush=True)
         return "unknown"
 
-    max_attempts = 2
-    for attempt in range(1, max_attempts + 1):
-        try:
-            t0 = time.time()
-            print(f"Calling Gemini ({MODEL_NAME}) attempt {attempt}/{max_attempts}...", flush=True)
-            response = client.models.generate_content(
-                model=MODEL_NAME,
-                contents=[
-                    types.Part.from_bytes(data=jpeg_bytes, mime_type="image/jpeg"),
-                    PROMPT,
-                ],
-                config=types.GenerateContentConfig(
-                    temperature=0.0,
-                    http_options=types.HttpOptions(timeout=45000),
-                ),
-            )
-            print(f"Gemini responded in {time.time() - t0:.2f}s", flush=True)
+    try:
+        t0 = time.time()
+        print(f"Calling Gemini ({MODEL_NAME})...", flush=True)
+        response = client.models.generate_content(
+            model=MODEL_NAME,
+            contents=[
+                types.Part.from_bytes(data=jpeg_bytes, mime_type="image/jpeg"),
+                PROMPT,
+            ],
+            config=types.GenerateContentConfig(
+                temperature=0.0,
+                http_options=types.HttpOptions(timeout=25000),
+            ),
+        )
+        print(f"Gemini responded in {time.time() - t0:.2f}s", flush=True)
 
-            text = getattr(response, "text", None)
-            raw = (text or "").strip().lower()
-            print(f"Gemini raw response: {raw!r}", flush=True)
+        text = getattr(response, "text", None)
+        raw = (text or "").strip().lower()
+        print(f"Gemini raw response: {raw!r}", flush=True)
 
-            for label in VALID_LABELS:
-                if raw == label or raw.startswith(label):
-                    return label
+        for label in VALID_LABELS:
+            if raw == label or raw.startswith(label):
+                return label
 
-            for label in VALID_LABELS:
-                if label in raw:
-                    return label
+        for label in VALID_LABELS:
+            if label in raw:
+                return label
 
-            return "unknown"
-        except Exception as e:
-            err_str = repr(e)
-            print(f"Gemini error (attempt {attempt}): {err_str}", flush=True)
-            if attempt < max_attempts and ("504" in err_str or "503" in err_str or "DEADLINE_EXCEEDED" in err_str):
-                time.sleep(1.0)
-                continue
-            print(traceback.format_exc(), flush=True)
-            return "unknown"
-
-    return "unknown"
+        return "unknown"
+    except Exception as e:
+        print(f"Gemini error: {repr(e)}", flush=True)
+        print(traceback.format_exc(), flush=True)
+        return "unknown"
 
 
 @app.route("/")
