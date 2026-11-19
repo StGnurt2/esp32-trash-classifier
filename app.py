@@ -14,17 +14,15 @@ app = Flask(__name__)
 API_KEY = (os.environ.get("GEMINI_API_KEY") or "").strip()
 client = genai.Client(api_key=API_KEY) if API_KEY else None
 
+MODEL_NAME = "gemini-3.8-flash"
 VALID_LABELS = ("paper", "glass", "plastic")
 
 PROMPT = """
-Ảnh này là ảnh đen trắng độ phân giải thấp chụp từ camera giám sát rác.
-Hãy xác định vật thể rác chính nổi bật nhất trong khung hình và phân loại vào ĐÚNG MỘT trong ba nhãn sau:
-- paper (giấy, bìa carton, giấy vở, khăn giấy, vỏ hộp giấy)
-- glass (thủy tinh, chai lọ thủy tinh, hũ thủy tinh, mảnh kính)
-- plastic (nhựa, chai nhựa, hộp nhựa, can nhựa, túi nilon)
-
-Nếu thấy vật thể rác chính (như chai nhựa, hộp/tờ giấy, chai/lọ thủy tinh), hãy chọn nhãn phù hợp nhất thay vì bỏ qua chỉ vì ảnh trắng đen hoặc hơi mờ.
-Chỉ trả về DUY NHẤT một từ viết thường: paper, glass, hoặc plastic (hoặc unknown nếu hoàn toàn không có vật thể nào). Không giải thích.
+Phân loại vật thể rác chính trong ảnh vào ĐÚNG MỘT từ viết thường: paper, glass, hoặc plastic.
+- paper: giấy, bìa carton, vở, hộp giấy
+- glass: thủy tinh, chai/lọ/hũ thủy tinh, kính
+- plastic: nhựa, chai nhựa, hộp nhựa, túi nilon
+Chỉ trả về đúng 1 từ: paper, glass, hoặc plastic (chỉ trả unknown nếu hoàn toàn không có vật thể nào).
 """.strip()
 
 latest_result = {
@@ -44,7 +42,7 @@ def convert_raw_to_jpeg(raw_bytes: bytes) -> bytes | None:
     if len(raw_bytes) == 240 * 176:
         img = Image.frombytes("L", (240, 176), raw_bytes)
         buf = io.BytesIO()
-        img.save(buf, format="JPEG", quality=85)
+        img.save(buf, format="JPEG", quality=70, optimize=True)
         return buf.getvalue()
     return None
 
@@ -54,39 +52,47 @@ def classify_trash_jpeg(jpeg_bytes: bytes) -> str:
         print("Gemini error: GEMINI_API_KEY is missing or empty", flush=True)
         return "unknown"
 
-    try:
-        t0 = time.time()
-        print("Calling Gemini generate_content...", flush=True)
-        response = client.models.generate_content(
-            model="gemini-3.8-flash",
-            contents=[
-                types.Part.from_bytes(data=jpeg_bytes, mime_type="image/jpeg"),
-                PROMPT,
-            ],
-            config=types.GenerateContentConfig(
-                temperature=0.0,
-                http_options=types.HttpOptions(timeout=20000),
-            ),
-        )
-        print(f"Gemini responded in {time.time() - t0:.2f}s", flush=True)
+    max_attempts = 2
+    for attempt in range(1, max_attempts + 1):
+        try:
+            t0 = time.time()
+            print(f"Calling Gemini ({MODEL_NAME}) attempt {attempt}/{max_attempts}...", flush=True)
+            response = client.models.generate_content(
+                model=MODEL_NAME,
+                contents=[
+                    types.Part.from_bytes(data=jpeg_bytes, mime_type="image/jpeg"),
+                    PROMPT,
+                ],
+                config=types.GenerateContentConfig(
+                    temperature=0.0,
+                    http_options=types.HttpOptions(timeout=45000),
+                ),
+            )
+            print(f"Gemini responded in {time.time() - t0:.2f}s", flush=True)
 
-        text = getattr(response, "text", None)
-        raw = (text or "").strip().lower()
-        print(f"Gemini raw response: {raw!r}", flush=True)
+            text = getattr(response, "text", None)
+            raw = (text or "").strip().lower()
+            print(f"Gemini raw response: {raw!r}", flush=True)
 
-        for label in VALID_LABELS:
-            if raw == label or raw.startswith(label):
-                return label
+            for label in VALID_LABELS:
+                if raw == label or raw.startswith(label):
+                    return label
 
-        for label in VALID_LABELS:
-            if label in raw:
-                return label
+            for label in VALID_LABELS:
+                if label in raw:
+                    return label
 
-        return "unknown"
-    except Exception as e:
-        print(f"Gemini error: {repr(e)}", flush=True)
-        print(traceback.format_exc(), flush=True)
-        return "unknown"
+            return "unknown"
+        except Exception as e:
+            err_str = repr(e)
+            print(f"Gemini error (attempt {attempt}): {err_str}", flush=True)
+            if attempt < max_attempts and ("504" in err_str or "503" in err_str or "DEADLINE_EXCEEDED" in err_str):
+                time.sleep(1.0)
+                continue
+            print(traceback.format_exc(), flush=True)
+            return "unknown"
+
+    return "unknown"
 
 
 @app.route("/")
@@ -123,7 +129,7 @@ def predict():
             converted = convert_raw_to_jpeg(img_bytes)
             if converted:
                 img_bytes = converted
-                print("Converted HQVGA grayscale frame to JPEG", flush=True)
+                print(f"Converted HQVGA grayscale frame to JPEG ({len(img_bytes)} bytes)", flush=True)
             else:
                 print("Warning: received non-JPEG data with unexpected length", flush=True)
 
