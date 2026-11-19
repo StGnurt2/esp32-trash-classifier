@@ -52,14 +52,20 @@ def classify_trash_jpeg(jpeg_bytes: bytes) -> str:
         return "unknown"
 
     try:
+        t0 = time.time()
+        print("Calling Gemini generate_content...", flush=True)
         response = client.models.generate_content(
             model="gemini-3.8-flash",
             contents=[
                 types.Part.from_bytes(data=jpeg_bytes, mime_type="image/jpeg"),
                 PROMPT,
             ],
-            config=types.GenerateContentConfig(temperature=0.0),
+            config=types.GenerateContentConfig(
+                temperature=0.0,
+                http_options=types.HttpOptions(timeout=20000),
+            ),
         )
+        print(f"Gemini responded in {time.time() - t0:.2f}s", flush=True)
 
         text = getattr(response, "text", None)
         raw = (text or "").strip().lower()
@@ -78,7 +84,6 @@ def classify_trash_jpeg(jpeg_bytes: bytes) -> str:
         print(f"Gemini error: {repr(e)}", flush=True)
         print(traceback.format_exc(), flush=True)
         return "unknown"
-
 
 @app.route("/")
 def index():
